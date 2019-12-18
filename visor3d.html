@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<title>Visor LOD</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<style>
+    body { margin: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="webgl"></div>
+<script src="js/three.min.js"></script>
+<script src="js/BasisTextureLoader.js"></script>
+<script src="js/OrbitControls.js"></script> 
+<script src="js/terrainLOD.js"></script> 
+<script src="js/TerrainLoader.js"></script> 
+<script>
+
+//-----------------------------------------------
+//  ESCENARIO
+//----------------------------------------------------------
+
+    var width  = window.innerWidth,
+        height = window.innerHeight
+    var t = new Terrain();   
+    var scene = new THREE.Scene();
+    scene.traverse( function( object ) { object.frustumCulled = false } );
+    scene.background = new THREE.Color( 0xCCFFFF );
+    var light = new THREE.PointLight( 0xff0000, 1, 0 );
+    light.position.set( 50, 50, 1000 );
+    scene.add( light );
+
+    var camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 20000);
+    camera.position.set( 500, 500, 1000);
+
+    var renderer = new THREE.WebGLRenderer;
+    renderer.setSize(width, height);
+    document.getElementById('webgl').appendChild(renderer.domElement);
+    
+    // Plano horizontal a 500 metros de altura que nos va a ayudar a obtener el centro de las tesela
+    
+    var referencedPlane = new THREE.Plane( new THREE.Vector3( 0, 0, 1 ), -500 );
+
+    // CAMINITO
+
+    var pts = [];
+    pts.push( new THREE.Vector2( -5, 5));
+    pts.push( new THREE.Vector2( 5, 5));
+    pts.push( new THREE.Vector2( 5, -5));
+    pts.push( new THREE.Vector2( -5, -5));
+
+    var shape = new THREE.Shape( pts );
+
+    var caminitoMaterial = new THREE.MeshLambertMaterial( { color: 0xff0000 } );
+
+    var pointsLoader = new THREE.FileLoader();
+    pointsLoader.setResponseType = 'json';
+
+    pointsLoader.load( 'images/caminito.json', function( data ) {
+      console.log( data );
+      var ptos = JSON.parse( data ).points;
+      var p = [];
+      for ( i = 0; i < ptos.length; i++ ) {
+        p.push( new THREE.Vector3( ptos[i][0], ptos[i][1], ptos[i][2] ) );
+      }
+
+      var path = new THREE.CatmullRomCurve3( p );
+      path.curveType = 'centripetal';
+
+      var extrudeSettings = {
+        steps: 400,
+        bevelEnabled: false,
+        extrudePath: path
+      }
+
+      var caminitoGeometry = new THREE.ExtrudeBufferGeometry( shape, extrudeSettings );
+
+      var caminitoMesh = new THREE.Mesh( caminitoGeometry, caminitoMaterial );
+
+      scene.add( caminitoMesh );
+
+    });
+
+//----------------------------------------------------------
+//  LEER MDT.BIN Y RENDERIZAR TERRENO
+//----------------------------------------------------------
+
+    var terrainLoader = new THREE.TerrainLoader();
+    terrainLoader.load('images/mdt.bin', function( data ) {
+      var d = new Uint8Array( 2000 * 2000 * 3 );
+      for ( i = 0; i < 2000 * 2000; i++ ) {
+        d[ i * 3 ] = Math.trunc( data[i] / 255 ) ;
+        d[ i * 3 + 1 ] = data[i] % 255;
+        d[ i * 3 + 2 ] = data[i] / 225;
+      }
+      var texture = new THREE.DataTexture( d, 2000, 2000, THREE.RGBFormat );
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.flipY = true;
+      texture.needsUpdate = true;
+      var pnoa = new THREE.BasisTextureLoader();
+      pnoa.setTranscoderPath( 'basis/' );
+      pnoa.detectSupport( renderer );
+      pnoa.load( 'images/pnoa2.basis', function( pnoaText ) {
+        console.log( pnoaText );
+        pnoaText.encoding = THREE.sRGBEncoding;
+        t = new Terrain( texture, 2000, 3, 250, pnoaText );
+        scene.add( t );
+      });
+
+    });
+
+//-------------------------------------------
+//    CONTROLES 
+//-------------------------------------------
+
+    var controls = new THREE.OrbitControls(camera, renderer.domElement); 
+
+    
+//-------------------------------------------
+//    RENDER 
+//-------------------------------------------
+    
+    render();
+        
+    function render() {
+        controls.update();
+
+        requestAnimationFrame(render);
+
+        // Calcular cenro de las teselas
+
+        var cameraDirection = new THREE.Vector3()
+        var cameraPosition = new THREE.Vector3()
+        var origin = new THREE.Vector3()
+
+        camera.getWorldDirection( cameraDirection );
+        camera.getWorldPosition( cameraPosition );
+
+        var ray = new THREE.Ray( cameraPosition, cameraDirection );
+        ray.intersectPlane( referencedPlane, origin );
+
+        t.offset.x = origin.x;
+        t.offset.y = origin.y;
+        renderer.render(scene, camera);
+    }
+
+</script>
+</body>
+</html>
